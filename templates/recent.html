@@ -1,0 +1,28 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Recent Events</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; background:#121212; color:#eee; margin:20px; }
+    h1 { font-weight:600; }
+    .event { background:#1e1e1e; padding:12px; margin:10px 0; border-radius:8px; border:1px solid #2a2a2a; }
+    .meta { color:#bbb; margin-bottom:6px; }
+    pre { background:#0e0e0e; padding:10px; border-radius:6px; overflow:auto; }
+    a { color:#9cc3ff; text-decoration:none; }
+    .hint { color:#aaa; margin-bottom:10px; }
+  </style>
+</head>
+<body>
+  <h1>Recent Events</h1>
+  <div class="hint">Filter by token: <code>?token=YOURTOKEN</code></div>
+  {% for e in events %}
+    <div class="event">
+      <div class="meta"><b>Token:</b> {{ e.token }} &nbsp; <b>Time:</b> {{ e.time }}</div>
+      <pre>{{ e.payload | tojson(indent=2) }}</pre>
+    </div>
+  {% else %}
+    <p>No events yet.</p>
+  {% endfor %}
+</body>
+</html>
