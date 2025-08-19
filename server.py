@@ -36,7 +36,18 @@ GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
 UPLOAD_DIR  = os.environ.get("GE_UPLOADS_DIR", "uploads")
 TEMPLATES_DIR = os.environ.get("GE_TEMPLATES_DIR", "templates")
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Ensure upload dir exists; fall back to /tmp/uploads if not writable (e.g., no mounted volume)
+def _resolve_upload_dir(path: str) -> str:
+    try:
+        os.makedirs(path, exist_ok=True)
+        return path
+    except PermissionError:
+        fallback = "/tmp/uploads"
+        os.makedirs(fallback, exist_ok=True)
+        print(f"[startup] GE_UPLOADS_DIR '{path}' not writable; falling back to {fallback}")
+        return fallback
+
+UPLOAD_DIR = _resolve_upload_dir(UPLOAD_DIR)
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
 # ------------------------------------------------------------------------------
@@ -53,6 +64,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount /uploads after resolving upload dir
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
@@ -161,7 +173,7 @@ async def _save_upload(file: UploadFile, token: str, base_url: str) -> str:
 
 def _patch_attachment_urls(payload: dict, mapping: dict, base_url: str) -> dict:
     """
-    Rewrite attachment://filename to absolute /uploads/<saved>
+    Rewrite attachment://filename to absolute /uploads/<saved> or full URL if already absolute.
     """
     def repl(u: str) -> str:
         if not isinstance(u, str):
@@ -171,6 +183,9 @@ def _patch_attachment_urls(payload: dict, mapping: dict, base_url: str) -> dict:
             key = low.split("://", 1)[1]
             saved = mapping.get(key) or mapping.get(key.lower())
             if saved:
+                # If saved is already an absolute URL (e.g., Firebase public URL), return it directly
+                if isinstance(saved, str) and (saved.startswith("http://") or saved.startswith("https://")):
+                    return saved
                 return f"{base_url.rstrip('/')}/uploads/{saved}"
         return u
 
@@ -361,12 +376,14 @@ async def recent_json(
     limit: int = 500,
     offset: int = 0,
     since: Optional[str] = None,
-    until: Optional[str] = None
+    until: Optional[str] = None,
+    type: Optional[str] = None
 ):
     """
     Paged JSON API:
       ?token=...&limit=500&offset=0
       ?since=unix_or_ISO&until=unix_or_ISO  (filters by 'time_dt' BSON datetime field)
+      ?type=TYPE (filters by eventType)
     Returns:
       { total, limit, offset, next_offset, events: [...] }
     """
@@ -376,6 +393,8 @@ async def recent_json(
     query: Dict[str, Any] = {}
     if token:
         query["token"] = token
+    if type:
+        query["eventType"] = str(type).upper()
 
     # time window on the BSON datetime `time_dt` (falls back to string if missing)
     since_dt = _parse_time_param_dt(since)
